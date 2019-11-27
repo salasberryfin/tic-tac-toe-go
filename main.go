@@ -3,49 +3,74 @@ package main
 import (
     "log"
     "fmt"
-    "math/rand"
-    "time"
     "strings"
     "strconv"
 )
 
-// default to 3x3 board
+// should work for any square board
 const COL_SIZE = 3
 const BOARD_SIZE = COL_SIZE*COL_SIZE
-// define move results
+
 const CONTINUE = "CONTINUE"
 const WIN = "WIN"
 const DRAW = "DRAW"
-const MASTER_ID = 1
-const PLAYER_ID = -1
+var USERID = map[string]int {
+    "master": 1,
+    "player": -1,
+}
 
-func firstMove() ([]int, []int, [BOARD_SIZE-1]int, error) {
-    // converting to uni-dimensional array
-    // [x][y] = (COL_SIZE * x) + y
-    rand.Seed(time.Now().UnixNano())
-    var master_pos, player_pos []int
-	master_row := rand.Intn(COL_SIZE)
-	master_col := rand.Intn(COL_SIZE)
-	var winning_board [BOARD_SIZE-1]int
-    winning_board[master_row] += MASTER_ID
-    winning_board[master_col+COL_SIZE] += MASTER_ID
-	if master_row == master_col {
-		winning_board[2*COL_SIZE] += MASTER_ID
-	} else if (master_row + master_col) == (COL_SIZE - 1) {
-		winning_board[(2*COL_SIZE)+1] += MASTER_ID
-	}
-    master_pos = append(master_pos, COL_SIZE*master_row+master_col)
-    log.Println("Master player will start at: ", master_pos)
+type BoardProperties struct {
+    WinningBoard        [BOARD_SIZE - 1]int
+    MasterPositions     []int
+    PlayerPositions     []int
+}
 
-    return master_pos, player_pos, winning_board, nil
+type NewIndex struct {
+    Col         int
+    Row         int
+    Position    int
+}
+
+func checkNewPos (pos int, positions []int) bool {
+    if len(findIntInArray(pos, positions)) > 0 || pos >= BOARD_SIZE {
+        return false
+    }
+
+    return true
+}
+
+func checkWin(board_status BoardProperties) string {
+    positions := append(board_status.MasterPositions, board_status.PlayerPositions...)
+    board := board_status.WinningBoard[:]
+    log.Println("WINING BOARD: ", board)
+    if len(findIntInArray(-COL_SIZE, board)) > 0 || len(findIntInArray(COL_SIZE, board)) > 0 {
+        return WIN
+    } else if len(positions) == BOARD_SIZE {
+        return DRAW
+    }
+
+    return CONTINUE
+}
+
+func updateWinningBoard (winning_board [BOARD_SIZE-1]int, row, col int, player string) [BOARD_SIZE-1]int {
+    winning_board[row] += USERID[player]
+    winning_board[col+COL_SIZE] += USERID[player]
+    if row == col {
+        winning_board[2*COL_SIZE] += USERID[player]
+    }
+    if (row + col) == (COL_SIZE - 1) {
+        winning_board[(2*COL_SIZE)+1] += USERID[player]
+    }
+
+    return winning_board
 }
 
 func generateMatrix(master_pos, player_pos []int) {
     var current_board [BOARD_SIZE]string
     for i := 0; i < BOARD_SIZE; i++ {
-        if findIntInArray(i, master_pos) {
+        if len(findIntInArray(i, master_pos)) > 0 {
             current_board[i] = "O"
-        } else if findIntInArray(i, player_pos) {
+        } else if len(findIntInArray(i, player_pos)) > 0 {
             current_board[i] = "X"
         } else {
             current_board[i] = "-"
@@ -57,121 +82,80 @@ func generateMatrix(master_pos, player_pos []int) {
 
 func drawBoard(currentBoard [BOARD_SIZE]string) {
     for i := 0; i < COL_SIZE; i++ {
-        fmt.Println(currentBoard[i*COL_SIZE:i*COL_SIZE+3])
+        log.Println(currentBoard[i*COL_SIZE:i*COL_SIZE+COL_SIZE])
     }
 }
 
-func movePlayer (master_pos, player_pos []int, winning_board [BOARD_SIZE-1]int) (string, string) {
+func moveMaster (board_status BoardProperties) (NewIndex) {
+    var new_index NewIndex
+    for {
+        master_row, master_col := applyStrategy(board_status)
+        new_master_pos := COL_SIZE*master_row+master_col
+        if checkNewPos (new_master_pos, append(board_status.MasterPositions, board_status.PlayerPositions...)) {
+            new_index = NewIndex{Col: master_col, Row: master_row, Position: new_master_pos}
+
+            return new_index
+        }
+    }
+}
+
+func movePlayer (board_status BoardProperties) (NewIndex) {
+    var new_index NewIndex
     for {
         fmt.Print("Enter your next move (row, col): ")
-		var new_player_index string
-		fmt.Scanln(&new_player_index)
-        row, errRow := strconv.Atoi(strings.Split(new_player_index, ",")[0])
+        var new_player_index string
+        fmt.Scanln(&new_player_index)
+        player_row, errRow := strconv.Atoi(strings.Split(new_player_index, ",")[0])
         if errRow != nil {
             log.Print(errRow)
         }
-        col, errCol := strconv.Atoi(strings.Split(new_player_index, ",")[1])
+        player_col, errCol := strconv.Atoi(strings.Split(new_player_index, ",")[1])
         if errCol != nil {
             log.Print(errCol)
         }
-        new_player_pos := int(COL_SIZE*row+col)
-		if checkNewPos(new_player_pos, append(master_pos, player_pos...)) {
-			player_pos = append(player_pos, new_player_pos)
-			winning_board[row] += PLAYER_ID
-			winning_board[col+COL_SIZE] += PLAYER_ID
-			if row == col {
-				winning_board[2*COL_SIZE] += PLAYER_ID
-			} else if (row + col) == (COL_SIZE - 1) {
-				winning_board[(2*COL_SIZE)+1] += PLAYER_ID
-			}
-			generateMatrix(master_pos, player_pos)
-			game_status := checkWin(winning_board, append(master_pos, player_pos...))
-			if game_status != CONTINUE{
-				return game_status, "Player"
-			}
-			new_master_pos, master_row, master_col := moveMaster(master_pos, player_pos)
-			master_pos = append(master_pos, new_master_pos)
-			winning_board[master_row] += MASTER_ID
-			winning_board[master_col+COL_SIZE] += MASTER_ID
-			if master_row == master_col {
-				winning_board[(2*COL_SIZE)] += MASTER_ID
-			} else if (master_row + master_col) == (COL_SIZE - 1) {
-				winning_board[(2*COL_SIZE)+1] += MASTER_ID
-			}
-			log.Println("Master moves")
-			generateMatrix(master_pos, player_pos)
-			game_status = checkWin(winning_board, append(master_pos, player_pos...))
-			if game_status != CONTINUE{
-				return game_status, "Master"
-			}
-		}
-    }
-}
+        new_player_pos := int(COL_SIZE*player_row+player_col)
+        if checkNewPos(new_player_pos, append(board_status.MasterPositions, board_status.PlayerPositions...)) {
+            new_index = NewIndex{Col: player_col, Row: player_row, Position: new_player_pos}
 
-func checkNewPos (pos int, positions []int) bool {
-	if findIntInArray(pos, positions) || pos >= BOARD_SIZE {
-		return false
-	}
-
-	return true
-}
-
-func moveMaster (master_pos, player_pos []int) (int, int, int) {
-	for {
-		master_row := rand.Intn(COL_SIZE)
-		master_col := rand.Intn(COL_SIZE)
-		new_master_pos := COL_SIZE*master_row+master_col
-		if checkNewPos (new_master_pos, append(master_pos, player_pos...)) {
-
-			return new_master_pos, master_row, master_col
-		}
-	}
-}
-
-func checkWin(winning_board [BOARD_SIZE-1]int, positions []int) string {
-	log.Println("WINNING BOARD: ", winning_board)
-	board := winning_board[:]
-	if findIntInArray(-3, board) || findIntInArray(3, board) {
-		return WIN
-	} else if len(positions) == BOARD_SIZE {
-		return DRAW
-	}
-
-    return CONTINUE
-}
-
-func findStrInArray(value string, array [BOARD_SIZE]string) (bool) {
-    for x := 0; x < len(array); x++ {
-        if value == array[x]{
-            return true
+            return new_index
         }
     }
-
-	return false
-}
-
-
-func findIntInArray(value int, array[]int) (bool) {
-    for x := 0; x < len(array); x++ {
-        if value == array[x]{
-            return true
-        }
-    }
-
-    return false
 }
 
 func main() {
     log.Println("Starting tic-tac-toe game!")
-    master_pos, player_pos, winning_board, errFirst := firstMove()
-    if errFirst != nil {
-        log.Println(errFirst)
+    var last_player, game_status string
+    var board_status BoardProperties
+    for {
+        log.Println("Master moves")
+        new_index := moveMaster(board_status)
+        board_status = BoardProperties{MasterPositions: append(board_status.MasterPositions, new_index.Position),
+                                       PlayerPositions: board_status.PlayerPositions,
+                                       WinningBoard: updateWinningBoard(board_status.WinningBoard, new_index.Col, new_index.Row, "master")}
+        log.Println("Master positions: ", board_status.MasterPositions)
+        generateMatrix(board_status.MasterPositions, board_status.PlayerPositions)
+        game_status = checkWin(board_status)
+        if game_status != CONTINUE {
+            last_player = "IA"
+            break
+        }
+        log.Println("Player moves")
+        new_index = movePlayer(board_status)
+        board_status = BoardProperties{PlayerPositions: append(board_status.PlayerPositions, new_index.Position),
+                                       MasterPositions: board_status.MasterPositions,
+                                       WinningBoard: updateWinningBoard(board_status.WinningBoard, new_index.Col, new_index.Row, "player")}
+        log.Println("Player positions: ", board_status.PlayerPositions)
+        generateMatrix(board_status.MasterPositions, board_status.PlayerPositions)
+        game_status = checkWin(board_status)
+        if game_status != CONTINUE {
+            last_player = "Player"
+            break
+        }
     }
-    generateMatrix(master_pos, player_pos)
-	result, last_player := movePlayer(master_pos, player_pos, winning_board)
-	if result == WIN {
-		log.Println(last_player, " wins!")
-	} else {
-		log.Println(result)
-	}
+    if game_status == WIN {
+        log.Println(last_player, " wins!")
+    } else {
+        log.Println(game_status)
+    }
 }
+
